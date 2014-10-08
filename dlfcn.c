@@ -17,7 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#define PSAPI_VERSION 1
 #include <windows.h>
+#include <psapi.h>
 #include <stdio.h>
 
 #include "dlfcn.h"
@@ -179,18 +181,38 @@ void *dlopen( const char *file, int mode )
 
     if( file == 0 )
     {
+        HMODULE hAddtnlMods[1024]; // Already loaded modules
+        HANDLE hCurrentProc = GetCurrentProcess();
+        DWORD cbNeeded;
+
         /* POSIX says that if the value of file is 0, a handle on a global
          * symbol object must be provided. That object must be able to access
          * all symbols from the original program file, and any objects loaded
          * with the RTLD_GLOBAL flag.
          * The return value from GetModuleHandle( ) allows us to retrieve
          * symbols only from the original program file. For objects loaded with
-         * the RTLD_GLOBAL flag, we create our own list later on.
+         * the RTLD_GLOBAL flag, we create our own list later on. For objects
+         * outside of the program file but already loaded (e.g. linked DLLs)
+         * they are added below.
          */
         hModule = GetModuleHandle( NULL );
 
         if( !hModule )
             save_err_ptr_str( file );
+
+
+        /* GetModuleHandle(NULL) only returns the current program file. So if we
+         * want to get ALL loaded module including those in linked DLLs, we have
+         * to use EnumProcessModules().
+         */
+        if( EnumProcessModules(hCurrentProc, hAddtnlMods, sizeof(hAddtnlMods), &cbNeeded))
+        {
+            int i;
+            for( i = 0; i < cbNeeded / sizeof(HMODULE); i++ )
+            {
+                global_add(hAddtnlMods[i]);
+            }
+        }
     }
     else
     {
